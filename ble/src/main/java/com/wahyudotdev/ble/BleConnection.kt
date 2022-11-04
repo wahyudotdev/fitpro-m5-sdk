@@ -10,6 +10,7 @@ import android.content.Context
 import android.util.Log
 import androidx.fragment.app.FragmentActivity
 import com.permissionx.guolindev.PermissionX
+import java.nio.ByteBuffer
 import java.util.*
 
 
@@ -59,7 +60,10 @@ open class BleConnection constructor(
         return this
     }
 
-    open fun setup(onDeniedPermission: ((List<String>) -> Unit)?, onGrantedPermission: () -> Unit) {
+    open fun setup(
+        onDeniedPermission: ((List<String>) -> Unit)? = null,
+        onGrantedPermission: () -> Unit
+    ) {
         manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         adapter = manager?.adapter
         scanner = adapter?.bluetoothLeScanner
@@ -235,9 +239,23 @@ open class BleConnection constructor(
                     0xCD 0x00 0x11 0x15 0x01 0x0C 0x00 0x0C 0x00 0x00 0x00 0x00 0x04 0x55 0x00
                     0x00 0x03 0x24 0x00 0x17
                     Dibaca: 1109 langkah, 804 meter dan 23 cal.
+                    [-51, 0, 17, 21, 1, 12, 0, 12, 0, 0,
+                    0, 0, 0, 107, 0, 0, 0, 59, 0, 2]
                      */
-                    if (characteristic.value?.get(5) == receiveHeartRate) {
-
+                    if (characteristic.value?.get(5) == receiveSportsDayData) {
+                        val steps = characteristic.value.slice(10..13).toByteArray()
+                        val meters = characteristic.value.slice(14..17).toByteArray()
+                        val cal = characteristic.value.slice(18..19).toMutableList()
+                        // akan muncul underflow error ketika hanya ada 2 array
+                        // array minimal yg dapat dikonversi adalah 4 array (1 byte) data
+                        cal.addAll(0, listOf(0, 0))
+                        _onDataReceived?.invoke(
+                            MonitoringData.Sports(
+                                steps = bytesToInt(steps),
+                                meters = bytesToInt(meters),
+                                cal = bytesToInt(cal.toByteArray()),
+                            )
+                        )
                     }
                 }
             })
@@ -246,6 +264,9 @@ open class BleConnection constructor(
 
     private fun byteArrayOfInts(vararg ints: Int) =
         ByteArray(ints.size) { pos -> ints[pos].toByte() }
+
+    private fun bytesToInt(bytes: ByteArray): Int =
+        ByteBuffer.wrap(bytes).int
 
     private fun sendData(data: ByteArray) {
         val characteristic =

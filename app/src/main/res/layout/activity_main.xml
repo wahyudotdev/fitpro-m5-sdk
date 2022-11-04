@@ -16,12 +16,27 @@
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
             tools:listitem="@layout/item_device" />
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/btnScan"
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/btnReadHeart"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:src="@drawable/ic_refresh"
+            android:text="Heart"
+            android:textAlignment="center"
+            app:layout_constraintBottom_toTopOf="@id/btnReadSports"
+            app:layout_constraintEnd_toEndOf="@id/btnReadSports"
+            app:layout_constraintStart_toStartOf="@id/btnReadSports"
+            app:tint="@null" />
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/btnReadSports"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_margin="24dp"
             android:src="@drawable/ic_refresh"
+            android:text="Sports"
+            android:textAlignment="center"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:tint="@null" />

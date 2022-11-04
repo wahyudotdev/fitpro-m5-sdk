@@ -11,25 +11,37 @@ import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
-    private lateinit var rvAdapter: ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>
+    private var rvAdapter: ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>? = null
     private lateinit var ble: BleConnection
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        rvAdapter =
+            object : ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>(R.layout.item_device) {
+                override fun onBindViewHolder(
+                    holder: ItemViewHolder<ItemDeviceBinding, BluetoothDevice>,
+                    position: Int
+                ) {
+                    super.onBindViewHolder(holder, position)
+                    holder.binding.btnConnect.setOnClickListener {
+                        ble.connect(getItem(position))
+                    }
+                }
+            }
+        binding.rvBluetooth.adapter = rvAdapter
+
         ble = BleConnection(this).apply {
             onDeviceDisconnected {
                 runOnUiThread { tos("device disconnected") }
-                readHeartRate()
             }
             onDeviceConnected {
                 runOnUiThread { tos("device connected") }
-                ble.readHeartRate()
             }
 
             onDeviceDiscovered {
-                rvAdapter.submitList(it.toMutableList())
+                rvAdapter?.submitList(it.toMutableList())
             }
 
             onDataReceived {
@@ -48,29 +60,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        ble.setup(
-            onDeniedPermission = {
-            },
-            onGrantedPermission = {
-                ble.startScan()
-            }
-        )
 
-        rvAdapter =
-            object : ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>(R.layout.item_device) {
-                override fun onBindViewHolder(
-                    holder: ItemViewHolder<ItemDeviceBinding, BluetoothDevice>,
-                    position: Int
-                ) {
-                    super.onBindViewHolder(holder, position)
-                    holder.binding.btnConnect.setOnClickListener {
-                        ble.connect(getItem(position))
-                    }
-                }
-            }
-        binding.rvBluetooth.adapter = rvAdapter
-        binding.btnScan.setOnClickListener {
-
+        ble.setup {
+            ble.startScan()
+        }
+        binding.btnReadHeart.setOnClickListener {
+            ble.readHeartRate()
+        }
+        binding.btnReadSports.setOnClickListener {
+            ble.readSportsData()
         }
     }
 

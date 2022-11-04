@@ -16,9 +16,6 @@ import java.util.*
 @SuppressLint("MissingPermission")
 open class BleConnection constructor(
     private val activity: FragmentActivity,
-    private val onConnected: ((BluetoothDevice) -> Unit)?,
-    private val onDisconnected: (() -> Unit)?,
-    private val onDeviceDiscovered: ((List<BluetoothDevice>) -> Unit)?,
 ) {
 
     private var manager: BluetoothManager? = null
@@ -27,11 +24,39 @@ open class BleConnection constructor(
     private var scanning = false
     private val devices = ArrayList<BluetoothDevice>()
     private var scanCallback: ScanCallback? = null
+    private var selectedGatt: BluetoothGatt? = null
 
     companion object {
         const val serviceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9d"
         const val notifyCharacteristicUUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9d"
         const val commandCharacteristicUUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9d"
+        const val receiveHeartRate = 0x0E.toByte()
+        const val receiveSportsDayData = 0x0C.toByte()
+    }
+
+    private var _onDeviceDiscovered: ((List<BluetoothDevice>) -> Unit)? = null
+    private var _onDeviceConnected: ((BluetoothDevice) -> Unit)? = null
+    private var _onDeviceDisconnected: (() -> Unit)? = null
+    private var _onDataReceived: ((MonitoringData) -> Unit)? = null
+
+    open fun onDeviceDiscovered(callback: ((List<BluetoothDevice>) -> Unit)?): BleConnection {
+        _onDeviceDiscovered = callback
+        return this
+    }
+
+    open fun onDeviceConnected(callback: ((BluetoothDevice) -> Unit)?): BleConnection {
+        _onDeviceConnected = callback
+        return this
+    }
+
+    open fun onDeviceDisconnected(callback: () -> Unit): BleConnection {
+        _onDeviceDisconnected = callback
+        return this
+    }
+
+    open fun onDataReceived(callback: ((MonitoringData) -> Unit)?): BleConnection {
+        _onDataReceived = callback
+        return this
     }
 
     open fun setup(onDeniedPermission: ((List<String>) -> Unit)?, onGrantedPermission: () -> Unit) {
@@ -56,6 +81,10 @@ open class BleConnection constructor(
         scanner?.stopScan(scanCallback)
     }
 
+    open fun disconnect() {
+        selectedGatt?.close()
+    }
+
     open fun startScan() {
         PermissionX.init(activity).permissions(
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -72,7 +101,7 @@ open class BleConnection constructor(
                     if (filter == null && result?.device != null) {
                         devices.add(result.device)
                     }
-                    onDeviceDiscovered?.invoke(devices)
+                    _onDeviceDiscovered?.invoke(devices)
                 }
 
                 override fun onScanFailed(errorCode: Int) {
@@ -119,22 +148,13 @@ open class BleConnection constructor(
                     return UUID(msb or (value shl 32), lsb)
                 }
 
-                private fun byteArrayOfInts(vararg ints: Int) =
-                    ByteArray(ints.size) { pos -> ints[pos].toByte() }
-
 
                 override fun onDescriptorWrite(
                     gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor?, status: Int
                 ) {
                     super.onDescriptorWrite(gatt, descriptor, status)
-                    val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x12, 0x01, 0x18, 0x00, 0x01, 0x01)
-                    val characteristic =
-                        gatt?.getService(UUID.fromString(serviceUUID))
-                            ?.getCharacteristic(UUID.fromString(commandCharacteristicUUID))
-                    characteristic?.value = data
-                    gatt?.writeCharacteristic(characteristic)
                     gatt?.device?.let {
-                        onConnected?.invoke(it)
+                        _onDeviceConnected?.invoke(it)
                     }
                 }
 
@@ -144,28 +164,12 @@ open class BleConnection constructor(
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         Log.d("TAG", "onConnectionStateChange: connected => ${gatt?.services}")
                         gatt?.discoverServices()
+                        selectedGatt = gatt
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         Log.d("TAG", "onConnectionStateChange: disconnected => $gatt")
-                        onDisconnected?.invoke()
+                        selectedGatt = null
+                        _onDeviceDisconnected?.invoke()
                     }
-                }
-
-                override fun onCharacteristicChanged(
-                    gatt: BluetoothGatt,
-                    characteristic: BluetoothGattCharacteristic,
-                    value: ByteArray
-                ) {
-                    super.onCharacteristicChanged(gatt, characteristic, value)
-                    Log.d("TAG", "onCharacteristicChanged: ${characteristic.uuid} => $value")
-                }
-
-                override fun onCharacteristicRead(
-                    gatt: BluetoothGatt,
-                    characteristic: BluetoothGattCharacteristic,
-                    value: ByteArray,
-                    status: Int
-                ) {
-                    Log.d("TAG", "onCharacteristicRead: ${characteristic.uuid} => $value")
                 }
 
                 override fun onCharacteristicChanged(
@@ -176,9 +180,88 @@ open class BleConnection constructor(
                         "TAG",
                         "onCharacteristicChanged: ${characteristic?.uuid} => ${characteristic?.value}"
                     )
+                    characteristic?.value ?: return
+
+                    /*
+                    Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data pengukuran,
+                    kita akan mendapatkan notifikasi berisi data dengan group Receive Sports Data (0x15),
+                    command Receive Heart Rate Data (0x0e) dan payload berisi data pengukuran dalam 12 byte.
+                    Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
+
+                    Byte ke-5 sampai dengan ke-8 adalah waktu pengukuran dalam detik,
+                    contoh: 0x00 0x00 0xe6 0xb2 artinya 59058 detik, yang berarti pengukuran
+                     dilakukan pada jam 16:24
+                    Byte ke-9 adalah nilai SPO2, contoh: 0x61 berarti 97%
+                    Byte ke-10 adalah tekanan darah tinggi, contoh: 0x78 berarti 120
+                    Byte ke-11 adalah tekanan darah rendah, contoh: 0x55 berarti 85
+                    Byte ke-12 adalah detak jantung per menit (BPM), contoh: 0x50 berarti 80 BPM
+
+                    Contoh:
+                    Untuk payload: 0xCD 0x00 0x11 0x15 0x01 0x0E 0x00 0x0C 0x2C 0xC9 0x00 0x01 0x00
+                     0x00 0xE6 0xB2 0x61 0x78 0x55 0x50
+                    Dibaca: 97% SPO2, Tekanan Darah 120/85 dan detak jantung 80 BPM
+                     */
+                    if (characteristic.value?.get(5) == receiveHeartRate) {
+                        val spo2 = characteristic.value?.get(16) ?: 0
+                        val diastolic = characteristic.value?.get(17) ?: 0
+                        val systolic = characteristic.value?.get(18) ?: 0
+                        val bpm = characteristic.value?.get(19) ?: 0
+                        _onDataReceived?.invoke(
+                            MonitoringData.HeartRate(
+                                spo2 = spo2.toInt(),
+                                diastolic = diastolic.toInt(),
+                                systolic = systolic.toInt(),
+                                bpm = bpm.toInt()
+                            )
+                        )
+                    }
+
+                    /*
+                    Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data
+                    pengukuran, kita akan mendapatkan notifikasi berisi data dengan group Receive
+                    Sports Data (0x15), command Receive Sports Day Data (0x0c) dan payload berisi
+                    data pengukuran dalam 12 byte.
+
+                    Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
+
+                    Byte ke-3 sampai dengan ke-6 adalah total langkah, contoh: 0x00 0x00 0x04 0x55
+                    berarti 1109 langkah.
+                    Byte ke-7 sampai dengan ke-10 adalah jarak dalam meter, contoh: 0x00 0x00 0x03
+                    0x24 berarti jarak yang ditempuh 804 meter.
+                    Byte ke-11 dan ke-12 adalah kalori yang dibakar dalam cal, contoh: 0x00 0x17
+                    berarti 23 cal.
+
+                    Contoh:
+                    0xCD 0x00 0x11 0x15 0x01 0x0C 0x00 0x0C 0x00 0x00 0x00 0x00 0x04 0x55 0x00
+                    0x00 0x03 0x24 0x00 0x17
+                    Dibaca: 1109 langkah, 804 meter dan 23 cal.
+                     */
+                    if (characteristic.value?.get(5) == receiveHeartRate) {
+
+                    }
                 }
             })
         }
     }
 
+    private fun byteArrayOfInts(vararg ints: Int) =
+        ByteArray(ints.size) { pos -> ints[pos].toByte() }
+
+    private fun sendData(data: ByteArray) {
+        val characteristic =
+            selectedGatt?.getService(UUID.fromString(serviceUUID))
+                ?.getCharacteristic(UUID.fromString(commandCharacteristicUUID))
+        characteristic?.value = data
+        selectedGatt?.writeCharacteristic(characteristic)
+    }
+
+    open fun readHeartRate() {
+        val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x12, 0x01, 0x18, 0x00, 0x01, 0x01)
+        sendData(data)
+    }
+
+    open fun readSportsData() {
+        val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x15, 0x01, 0x0D, 0x00, 0x01, 0x01)
+        sendData(data)
+    }
 }

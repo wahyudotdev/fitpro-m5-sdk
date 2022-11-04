@@ -2,8 +2,10 @@ package com.wahyudotdev.fitprom5
 
 import android.bluetooth.BluetoothDevice
 import android.os.Bundle
+import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.wahyudotdev.ble.BleConnection
+import com.wahyudotdev.ble.MonitoringData
 import com.wahyudotdev.fitprom5.databinding.ActivityMainBinding
 import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
 
@@ -16,25 +18,46 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        ble = BleConnection(
-            this,
-            onDeviceDiscovered = {
+        ble = BleConnection(this).apply {
+            onDeviceDisconnected {
+                runOnUiThread { tos("device disconnected") }
+                readHeartRate()
+            }
+            onDeviceConnected {
+                runOnUiThread { tos("device connected") }
+                ble.readHeartRate()
+            }
+
+            onDeviceDiscovered {
                 rvAdapter.submitList(it.toMutableList())
-            },
-            onConnected = null,
-            onDisconnected = null,
-        )
+            }
+
+            onDataReceived {
+                runOnUiThread {
+                    when (it) {
+                        is MonitoringData.HeartRate -> Log.d(
+                            "TAG",
+                            "heart rate: ${it.spo2}%, ${it.systolic}/${it.diastolic}mmHg, ${it.bpm}bpm"
+                        )
+                        is MonitoringData.Sports -> Log.d(
+                            "TAG",
+                            "sports : ${it.steps} steps, ${it.meters} m, ${it.cal} cal"
+                        )
+                        else -> Log.d("TAG", "unprocessed data")
+                    }
+                }
+            }
+        }
         ble.setup(
             onDeniedPermission = {
-                tos("permission denied : ${it.joinToString(",")}")
             },
             onGrantedPermission = {
-                tos("permission granted, start scanning")
                 ble.startScan()
             }
         )
 
-        rvAdapter = object : ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>(R.layout.item_device) {
+        rvAdapter =
+            object : ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>(R.layout.item_device) {
                 override fun onBindViewHolder(
                     holder: ItemViewHolder<ItemDeviceBinding, BluetoothDevice>,
                     position: Int

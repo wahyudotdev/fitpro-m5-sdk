@@ -10,7 +10,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import java.nio.ByteBuffer
@@ -32,14 +31,22 @@ open class BleHelper constructor(
     private var selectedGatt: BluetoothGatt? = null
     private var broadcastReceiver: BroadcastReceiver? = null
 
-    companion object {
-        val serviceUUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9d")
-        val notifyCharacteristicUUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9d")
-        val commandCharacteristicUUID: UUID =
-            UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9d")
-        const val receiveHeartRate = 0x0E.toByte()
-        const val receiveSportsDayData = 0x0C.toByte()
-    }
+    private val _serviceUUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9d")
+    private val _notifyCharacteristicUUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9d")
+    private val _commandCharacteristicUUID: UUID =
+        UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9d")
+    private val _receiveHeartRate = 0x0E.toByte()
+    private val _receiveSportsDayData = 0x0C.toByte()
+
+
+    open val service: UUID
+        get() = _serviceUUID
+
+    open val notifyCharacteristic: UUID
+        get() = _notifyCharacteristicUUID
+
+    open val commandCharacteristic: UUID
+        get() = _commandCharacteristicUUID
 
 
     open fun setup(
@@ -122,7 +129,7 @@ open class BleHelper constructor(
             device.connectGatt(activity, true, object : BluetoothGattCallback() {
                 override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
                     super.onServicesDiscovered(gatt, status)
-                    gatt?.getService(serviceUUID)?.getCharacteristic(notifyCharacteristicUUID)
+                    gatt?.getService(service)?.getCharacteristic(notifyCharacteristic)
                         ?.let {
                             gatt.setCharacteristicNotification(it, true)
                             val notifyCharacteristics = convertFromInteger(0x2902)
@@ -164,83 +171,8 @@ open class BleHelper constructor(
                     gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?
                 ) {
                     super.onCharacteristicChanged(gatt, characteristic)
-                    Log.d(
-                        "TAG",
-                        "onCharacteristicChanged: ${characteristic?.uuid} => ${characteristic?.value}"
-                    )
                     characteristic?.value ?: return
-
-                    /*
-                    Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data pengukuran,
-                    kita akan mendapatkan notifikasi berisi data dengan group Receive Sports Data (0x15),
-                    command Receive Heart Rate Data (0x0e) dan payload berisi data pengukuran dalam 12 byte.
-                    Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
-
-                    Byte ke-5 sampai dengan ke-8 adalah waktu pengukuran dalam detik,
-                    contoh: 0x00 0x00 0xe6 0xb2 artinya 59058 detik, yang berarti pengukuran
-                     dilakukan pada jam 16:24
-                    Byte ke-9 adalah nilai SPO2, contoh: 0x61 berarti 97%
-                    Byte ke-10 adalah tekanan darah tinggi, contoh: 0x78 berarti 120
-                    Byte ke-11 adalah tekanan darah rendah, contoh: 0x55 berarti 85
-                    Byte ke-12 adalah detak jantung per menit (BPM), contoh: 0x50 berarti 80 BPM
-
-                    Contoh:
-                    Untuk payload: 0xCD 0x00 0x11 0x15 0x01 0x0E 0x00 0x0C 0x2C 0xC9 0x00 0x01 0x00
-                     0x00 0xE6 0xB2 0x61 0x78 0x55 0x50
-                    Dibaca: 97% SPO2, Tekanan Darah 120/85 dan detak jantung 80 BPM
-                     */
-                    if (characteristic.value?.get(5) == receiveHeartRate) {
-                        val spo2 = characteristic.value?.get(16) ?: 0
-                        val diastolic = characteristic.value?.get(17) ?: 0
-                        val systolic = characteristic.value?.get(18) ?: 0
-                        val bpm = characteristic.value?.get(19) ?: 0
-                        listener.onDataReceived(
-                            MonitoringData.HeartRate(
-                                spo2 = spo2.toInt(),
-                                diastolic = diastolic.toInt(),
-                                systolic = systolic.toInt(),
-                                bpm = bpm.toInt()
-                            )
-                        )
-                    }
-
-                    /*
-                    Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data
-                    pengukuran, kita akan mendapatkan notifikasi berisi data dengan group Receive
-                    Sports Data (0x15), command Receive Sports Day Data (0x0c) dan payload berisi
-                    data pengukuran dalam 12 byte.
-
-                    Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
-
-                    Byte ke-3 sampai dengan ke-6 adalah total langkah, contoh: 0x00 0x00 0x04 0x55
-                    berarti 1109 langkah.
-                    Byte ke-7 sampai dengan ke-10 adalah jarak dalam meter, contoh: 0x00 0x00 0x03
-                    0x24 berarti jarak yang ditempuh 804 meter.
-                    Byte ke-11 dan ke-12 adalah kalori yang dibakar dalam cal, contoh: 0x00 0x17
-                    berarti 23 cal.
-
-                    Contoh:
-                    0xCD 0x00 0x11 0x15 0x01 0x0C 0x00 0x0C 0x00 0x00 0x00 0x00 0x04 0x55 0x00
-                    0x00 0x03 0x24 0x00 0x17
-                    Dibaca: 1109 langkah, 804 meter dan 23 cal.
-                    [-51, 0, 17, 21, 1, 12, 0, 12, 0, 0,
-                    0, 0, 0, 107, 0, 0, 0, 59, 0, 2]
-                     */
-                    if (characteristic.value?.get(5) == receiveSportsDayData) {
-                        val steps = characteristic.value.slice(10..13).toByteArray()
-                        val meters = characteristic.value.slice(14..17).toByteArray()
-                        val cal = characteristic.value.slice(18..19).toMutableList()
-                        // akan muncul underflow error ketika hanya ada 2 array
-                        // array minimal yg dapat dikonversi adalah 4 array (1 byte) data
-                        cal.addAll(0, listOf(0, 0))
-                        listener.onDataReceived(
-                            MonitoringData.Sports(
-                                steps = bytesToInt(steps),
-                                meters = bytesToInt(meters),
-                                cal = bytesToInt(cal.toByteArray()),
-                            )
-                        )
-                    }
+                    parseData(characteristic)
                 }
             })
         }
@@ -254,10 +186,85 @@ open class BleHelper constructor(
 
     private fun sendData(data: ByteArray) {
         val characteristic =
-            selectedGatt?.getService(serviceUUID)
-                ?.getCharacteristic(commandCharacteristicUUID)
+            selectedGatt?.getService(service)
+                ?.getCharacteristic(commandCharacteristic)
         characteristic?.value = data
         selectedGatt?.writeCharacteristic(characteristic)
+    }
+
+    open fun parseData(characteristic: BluetoothGattCharacteristic) {
+
+        /*
+        Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data pengukuran,
+        kita akan mendapatkan notifikasi berisi data dengan group Receive Sports Data (0x15),
+        command Receive Heart Rate Data (0x0e) dan payload berisi data pengukuran dalam 12 byte.
+        Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
+
+        Byte ke-5 sampai dengan ke-8 adalah waktu pengukuran dalam detik,
+        contoh: 0x00 0x00 0xe6 0xb2 artinya 59058 detik, yang berarti pengukuran
+         dilakukan pada jam 16:24
+        Byte ke-9 adalah nilai SPO2, contoh: 0x61 berarti 97%
+        Byte ke-10 adalah tekanan darah tinggi, contoh: 0x78 berarti 120
+        Byte ke-11 adalah tekanan darah rendah, contoh: 0x55 berarti 85
+        Byte ke-12 adalah detak jantung per menit (BPM), contoh: 0x50 berarti 80 BPM
+
+        Contoh:
+        Untuk payload: 0xCD 0x00 0x11 0x15 0x01 0x0E 0x00 0x0C 0x2C 0xC9 0x00 0x01 0x00
+         0x00 0xE6 0xB2 0x61 0x78 0x55 0x50
+        Dibaca: 97% SPO2, Tekanan Darah 120/85 dan detak jantung 80 BPM
+         */
+        if (characteristic.value?.get(5) == _receiveHeartRate) {
+            val spo2 = characteristic.value?.get(16) ?: 0
+            val diastolic = characteristic.value?.get(17) ?: 0
+            val systolic = characteristic.value?.get(18) ?: 0
+            val bpm = characteristic.value?.get(19) ?: 0
+            listener.onDataReceived(
+                MonitoringData.HeartRate(
+                    spo2 = spo2.toInt(),
+                    diastolic = diastolic.toInt(),
+                    systolic = systolic.toInt(),
+                    bpm = bpm.toInt()
+                )
+            )
+        }
+
+        /*
+        Ketika pengukuran telah selesai dan gelang M6 berhasil mendapatkan data
+        pengukuran, kita akan mendapatkan notifikasi berisi data dengan group Receive
+        Sports Data (0x15), command Receive Sports Day Data (0x0c) dan payload berisi
+        data pengukuran dalam 12 byte.
+
+        Untuk payload-nya sendiri cara membacanya adalah sebagai berikut:
+
+        Byte ke-3 sampai dengan ke-6 adalah total langkah, contoh: 0x00 0x00 0x04 0x55
+        berarti 1109 langkah.
+        Byte ke-7 sampai dengan ke-10 adalah jarak dalam meter, contoh: 0x00 0x00 0x03
+        0x24 berarti jarak yang ditempuh 804 meter.
+        Byte ke-11 dan ke-12 adalah kalori yang dibakar dalam cal, contoh: 0x00 0x17
+        berarti 23 cal.
+
+        Contoh:
+        0xCD 0x00 0x11 0x15 0x01 0x0C 0x00 0x0C 0x00 0x00 0x00 0x00 0x04 0x55 0x00
+        0x00 0x03 0x24 0x00 0x17
+        Dibaca: 1109 langkah, 804 meter dan 23 cal.
+        [-51, 0, 17, 21, 1, 12, 0, 12, 0, 0,
+        0, 0, 0, 107, 0, 0, 0, 59, 0, 2]
+         */
+        if (characteristic.value?.get(5) == _receiveSportsDayData) {
+            val steps = characteristic.value.slice(10..13).toByteArray()
+            val meters = characteristic.value.slice(14..17).toByteArray()
+            val cal = characteristic.value.slice(18..19).toMutableList()
+            // akan muncul underflow error ketika hanya ada 2 array
+            // array minimal yg dapat dikonversi adalah 4 array (1 byte) data
+            cal.addAll(0, listOf(0, 0))
+            listener.onDataReceived(
+                MonitoringData.Sports(
+                    steps = bytesToInt(steps),
+                    meters = bytesToInt(meters),
+                    cal = bytesToInt(cal.toByteArray()),
+                )
+            )
+        }
     }
 
     fun readHeartRate() {

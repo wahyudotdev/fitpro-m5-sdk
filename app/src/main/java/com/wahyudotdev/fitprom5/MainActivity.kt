@@ -1,18 +1,21 @@
 package com.wahyudotdev.fitprom5
 
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
-import com.wahyudotdev.ble.BleConnection
+import com.permissionx.guolindev.PermissionX
+import com.wahyudotdev.ble.BleHelper
+import com.wahyudotdev.ble.BleListener
 import com.wahyudotdev.ble.MonitoringData
 import com.wahyudotdev.fitprom5.databinding.ActivityMainBinding
 import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), BleListener {
     private lateinit var binding: ActivityMainBinding
     private var rvAdapter: ReactiveListAdapter<ItemDeviceBinding, BluetoothDevice>? = null
-    private lateinit var ble: BleConnection
+    private lateinit var ble: BleHelper
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -32,38 +35,28 @@ class MainActivity : AppCompatActivity() {
             }
         binding.rvBluetooth.adapter = rvAdapter
 
-        ble = BleConnection(this).apply {
-            onDeviceDisconnected {
-                runOnUiThread { tos("device disconnected") }
-            }
-            onDeviceConnected {
-                runOnUiThread { tos("device connected") }
-            }
 
-            onDeviceDiscovered {
-                rvAdapter?.submitList(it.toMutableList())
-            }
+        // Sebelum inisialisasi kelas ini, pastikan bahwa location sudah aktif
+        // Perangkat BLE tidak akan bisa ditemukan jika GPS dalam keadaan OFF
+        ble = BleHelper(this, this)
 
-            onDataReceived {
-                runOnUiThread {
-                    when (it) {
-                        is MonitoringData.HeartRate -> Log.d(
-                            "TAG",
-                            "heart rate: ${it.spo2}%, ${it.systolic}/${it.diastolic}mmHg, ${it.bpm}bpm"
-                        )
-                        is MonitoringData.Sports -> Log.d(
-                            "TAG",
-                            "sports : ${it.steps} steps, ${it.meters} m, ${it.cal} cal"
-                        )
-                        else -> Log.d("TAG", "unprocessed data")
+        PermissionX.init(this).permissions(
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.BLUETOOTH,
+            android.Manifest.permission.BLUETOOTH_ADMIN
+        ).request { allGranted, _, deniedList ->
+            if (allGranted) {
+                ble.setup {
+                    if (it?.isEnabled == true) {
+                        ble.startScan()
+                    } else {
+                        ble.enableBluetooth()
                     }
                 }
             }
         }
 
-        ble.setup {
-            ble.startScan()
-        }
         binding.btnReadHeart.setOnClickListener {
             ble.readHeartRate()
         }
@@ -72,8 +65,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onPause() {
-        ble.stopScan()
-        super.onPause()
+    override fun onDestroy() {
+        ble.destroy()
+        super.onDestroy()
+    }
+
+    override fun onDeviceDiscovered(devices: List<BluetoothDevice>) {
+        rvAdapter?.submitList(devices.toMutableList())
+    }
+
+    override fun onDataReceived(data: MonitoringData) {
+        when (data) {
+            is MonitoringData.HeartRate -> Log.d(
+                "BLE",
+                "heart rate: ${data.spo2}%, ${data.systolic}/${data.diastolic}mmHg, ${data.bpm}bpm"
+            )
+            is MonitoringData.Sports -> Log.d(
+                "BLE",
+                "sports : ${data.steps} steps, ${data.meters} m, ${data.cal} cal"
+            )
+            else -> Log.d("BLE", "unprocessed data")
+        }
+    }
+
+    override fun onBluetoothStateChanged(state: Int) {
+        when (state) {
+            BluetoothAdapter.STATE_OFF -> runOnUiThread { tos("Bluetooth OFF") }
+            BluetoothAdapter.STATE_ON -> {
+                ble.startScan()
+                runOnUiThread { tos("Bluetooth ON, start scanning") }
+            }
+        }
     }
 }

@@ -1,22 +1,26 @@
 package com.wahyudotdev.ble
 
-import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
-import com.permissionx.guolindev.PermissionX
 import java.nio.ByteBuffer
 import java.util.*
 
 
 @SuppressLint("MissingPermission")
-open class BleConnection constructor(
+open class BleHelper constructor(
     private val activity: FragmentActivity,
+    private val listener: BleListener,
 ) {
 
     private var manager: BluetoothManager? = null
@@ -26,123 +30,106 @@ open class BleConnection constructor(
     private val devices = ArrayList<BluetoothDevice>()
     private var scanCallback: ScanCallback? = null
     private var selectedGatt: BluetoothGatt? = null
+    private var broadcastReceiver: BroadcastReceiver? = null
 
     companion object {
-        const val serviceUUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9d"
-        const val notifyCharacteristicUUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9d"
-        const val commandCharacteristicUUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9d"
+        val serviceUUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9d")
+        val notifyCharacteristicUUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9d")
+        val commandCharacteristicUUID: UUID =
+            UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9d")
         const val receiveHeartRate = 0x0E.toByte()
         const val receiveSportsDayData = 0x0C.toByte()
     }
 
-    private var _onDeviceDiscovered: ((List<BluetoothDevice>) -> Unit)? = null
-    private var _onDeviceConnected: ((BluetoothDevice) -> Unit)? = null
-    private var _onDeviceDisconnected: (() -> Unit)? = null
-    private var _onDataReceived: ((MonitoringData) -> Unit)? = null
-
-    open fun onDeviceDiscovered(callback: ((List<BluetoothDevice>) -> Unit)?): BleConnection {
-        _onDeviceDiscovered = callback
-        return this
-    }
-
-    open fun onDeviceConnected(callback: ((BluetoothDevice) -> Unit)?): BleConnection {
-        _onDeviceConnected = callback
-        return this
-    }
-
-    open fun onDeviceDisconnected(callback: () -> Unit): BleConnection {
-        _onDeviceDisconnected = callback
-        return this
-    }
-
-    open fun onDataReceived(callback: ((MonitoringData) -> Unit)?): BleConnection {
-        _onDataReceived = callback
-        return this
-    }
 
     open fun setup(
-        onDeniedPermission: ((List<String>) -> Unit)? = null,
-        onGrantedPermission: () -> Unit
+        onSetupFail: ((List<String>) -> Unit)? = null,
+        onSetupSuccess: ((adapter: BluetoothAdapter?) -> Unit)? = null,
     ) {
         manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         adapter = manager?.adapter
-        scanner = adapter?.bluetoothLeScanner
-        PermissionX.init(activity).permissions(
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.BLUETOOTH,
-            Manifest.permission.BLUETOOTH_ADMIN,
-        ).request { allGranted, _, deniedList ->
-            if (allGranted) {
-                onGrantedPermission()
-            } else {
-                onDeniedPermission?.invoke(deniedList)
+        listenBluetoothState()
+        onSetupSuccess?.invoke(adapter)
+    }
+
+    private fun listenBluetoothState() {
+        broadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val action = intent?.action
+                if (action?.equals(BluetoothAdapter.ACTION_STATE_CHANGED) == true) {
+                    val state =
+                        intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                    listener.onBluetoothStateChanged(state)
+                }
             }
         }
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        activity.registerReceiver(broadcastReceiver, filter)
+    }
+
+    open fun destroy() {
+        stopScan()
+        disconnect()
+        activity.unregisterReceiver(broadcastReceiver)
     }
 
     open fun stopScan() {
         scanner?.stopScan(scanCallback)
     }
 
-    open fun disconnect() {
+    open fun enableBluetooth(onFail: (() -> Unit)? = null, onSuccess: (() -> Unit)? = null) {
+        val register =
+            activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+                if (it.resultCode == Activity.RESULT_OK) {
+                    onSuccess?.invoke()
+                } else {
+                    onFail?.invoke()
+                }
+            }
+        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+        register.launch(intent)
+    }
+
+    fun disconnect() {
         selectedGatt?.close()
     }
 
-    open fun startScan() {
-        PermissionX.init(activity).permissions(
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.BLUETOOTH,
-        ).request { allGranted, _, _ ->
-
-            devices.clear()
-
-            scanCallback = object : ScanCallback() {
-                override fun onScanResult(callbackType: Int, result: ScanResult?) {
-                    super.onScanResult(callbackType, result)
-                    val filter = devices.find { it.address == result?.device?.address }
-                    if (filter == null && result?.device != null) {
-                        devices.add(result.device)
-                    }
-                    _onDeviceDiscovered?.invoke(devices)
+    fun startScan() {
+        scanner = adapter?.bluetoothLeScanner
+        devices.clear()
+        scanCallback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult?) {
+                super.onScanResult(callbackType, result)
+                val filter = devices.find { it.address == result?.device?.address }
+                if (filter == null && result?.device != null) {
+                    devices.add(result.device)
                 }
-
-                override fun onScanFailed(errorCode: Int) {
-                    super.onScanFailed(errorCode)
-                    Log.e("TAG", "onScanFailed: $errorCode")
-                }
+                listener.onDeviceDiscovered(devices)
             }
-
-            if (allGranted) {
-                if (!scanning) {
-                    scanner?.startScan(scanCallback)
-                    scanning = true
-                } else {
-                    scanning = false
-                    scanner?.stopScan(scanCallback)
-                }
-            }
+        }
+        if (!scanning) {
+            scanner?.startScan(scanCallback)
+            scanning = true
+        } else {
+            scanning = false
+            scanner?.stopScan(scanCallback)
         }
     }
 
     fun connect(device: BluetoothDevice) {
         scanCallback?.let { it ->
             scanner?.stopScan(it)
-            device.connectGatt(activity, false, object : BluetoothGattCallback() {
+            device.connectGatt(activity, true, object : BluetoothGattCallback() {
                 override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
                     super.onServicesDiscovered(gatt, status)
-                    gatt?.services?.forEach {
-                        it.characteristics.forEach { characteristic ->
-                            if (characteristic.uuid.toString() == notifyCharacteristicUUID) {
-                                gatt.setCharacteristicNotification(characteristic, true)
-                                val notifyCharacteristics = convertFromInteger(0x2902)
-                                val descriptor = characteristic.getDescriptor(notifyCharacteristics)
-                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                gatt.writeDescriptor(descriptor)
-                            }
+                    gatt?.getService(serviceUUID)?.getCharacteristic(notifyCharacteristicUUID)
+                        ?.let {
+                            gatt.setCharacteristicNotification(it, true)
+                            val notifyCharacteristics = convertFromInteger(0x2902)
+                            val descriptor = it.getDescriptor(notifyCharacteristics)
+                            descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            gatt.writeDescriptor(descriptor)
                         }
-                    }
                 }
 
                 private fun convertFromInteger(i: Int): UUID {
@@ -152,13 +139,12 @@ open class BleConnection constructor(
                     return UUID(msb or (value shl 32), lsb)
                 }
 
-
                 override fun onDescriptorWrite(
                     gatt: BluetoothGatt?, descriptor: BluetoothGattDescriptor?, status: Int
                 ) {
                     super.onDescriptorWrite(gatt, descriptor, status)
                     gatt?.device?.let {
-                        _onDeviceConnected?.invoke(it)
+                        listener.onDeviceConnected(it)
                     }
                 }
 
@@ -166,13 +152,11 @@ open class BleConnection constructor(
                     gatt: BluetoothGatt?, status: Int, newState: Int
                 ) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        Log.d("TAG", "onConnectionStateChange: connected => ${gatt?.services}")
                         gatt?.discoverServices()
                         selectedGatt = gatt
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        Log.d("TAG", "onConnectionStateChange: disconnected => $gatt")
                         selectedGatt = null
-                        _onDeviceDisconnected?.invoke()
+                        listener.onDeviceDisconnected()
                     }
                 }
 
@@ -210,7 +194,7 @@ open class BleConnection constructor(
                         val diastolic = characteristic.value?.get(17) ?: 0
                         val systolic = characteristic.value?.get(18) ?: 0
                         val bpm = characteristic.value?.get(19) ?: 0
-                        _onDataReceived?.invoke(
+                        listener.onDataReceived(
                             MonitoringData.HeartRate(
                                 spo2 = spo2.toInt(),
                                 diastolic = diastolic.toInt(),
@@ -249,7 +233,7 @@ open class BleConnection constructor(
                         // akan muncul underflow error ketika hanya ada 2 array
                         // array minimal yg dapat dikonversi adalah 4 array (1 byte) data
                         cal.addAll(0, listOf(0, 0))
-                        _onDataReceived?.invoke(
+                        listener.onDataReceived(
                             MonitoringData.Sports(
                                 steps = bytesToInt(steps),
                                 meters = bytesToInt(meters),
@@ -270,18 +254,18 @@ open class BleConnection constructor(
 
     private fun sendData(data: ByteArray) {
         val characteristic =
-            selectedGatt?.getService(UUID.fromString(serviceUUID))
-                ?.getCharacteristic(UUID.fromString(commandCharacteristicUUID))
+            selectedGatt?.getService(serviceUUID)
+                ?.getCharacteristic(commandCharacteristicUUID)
         characteristic?.value = data
         selectedGatt?.writeCharacteristic(characteristic)
     }
 
-    open fun readHeartRate() {
+    fun readHeartRate() {
         val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x12, 0x01, 0x18, 0x00, 0x01, 0x01)
         sendData(data)
     }
 
-    open fun readSportsData() {
+    fun readSportsData() {
         val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x15, 0x01, 0x0D, 0x00, 0x01, 0x01)
         sendData(data)
     }

@@ -123,7 +123,7 @@ open class BleHelper constructor(
         }
     }
 
-    fun connect(device: BluetoothDevice) {
+    fun connect(device: BluetoothDevice, onConnected: (() -> Unit)? = null) {
         scanCallback?.let { it ->
             scanner?.stopScan(it)
             device.connectGatt(activity, true, object : BluetoothGattCallback() {
@@ -152,6 +152,7 @@ open class BleHelper constructor(
                     super.onDescriptorWrite(gatt, descriptor, status)
                     gatt?.device?.let {
                         listener.onDeviceConnected(it)
+                        onConnected?.invoke()
                     }
                 }
 

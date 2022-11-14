@@ -22,7 +22,7 @@ class FitProM5 : BleParser {
             String.format("%6s", Integer.toBinaryString(dt.get(Calendar.YEAR).minus(2000)))
                 .replace(' ', '0')
         val month =
-            String.format("%4s", Integer.toBinaryString(dt.get(Calendar.MONTH))).replace(' ', '0')
+            String.format("%4s", Integer.toBinaryString(dt.get(Calendar.MONTH).plus(1))).replace(' ', '0')
         val day =
             String.format("%5s", Integer.toBinaryString(dt.get(Calendar.DATE))).replace(' ', '0')
         val hour =

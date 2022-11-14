@@ -11,6 +11,7 @@ import com.wahyudotdev.ble.BleListener
 import com.wahyudotdev.ble.MonitoringData
 import com.wahyudotdev.fitprom5.databinding.ActivityMainBinding
 import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
+import java.util.*
 
 class MainActivity : AppCompatActivity(), BleListener {
     private lateinit var binding: ActivityMainBinding
@@ -96,5 +97,16 @@ class MainActivity : AppCompatActivity(), BleListener {
                 runOnUiThread { tos("Bluetooth ON, start scanning") }
             }
         }
+    }
+
+    override fun onDeviceConnected(device: BluetoothDevice) {
+        super.onDeviceConnected(device)
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.YEAR, 2022)
+        calendar.set(Calendar.MONTH, 11)
+        calendar.set(Calendar.DATE, 14)
+        calendar.set(Calendar.HOUR, 16)
+        calendar.set(Calendar.MINUTE, 0)
+        ble.setDateTime(calendar)
     }
 }

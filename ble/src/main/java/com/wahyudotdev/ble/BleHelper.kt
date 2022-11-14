@@ -12,6 +12,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
+import com.wahyudotdev.ble.parser.BleParser
+import com.wahyudotdev.ble.parser.FitProM5
 import java.nio.ByteBuffer
 import java.util.*
 
@@ -20,6 +22,7 @@ import java.util.*
 open class BleHelper constructor(
     private val activity: FragmentActivity,
     private val listener: BleListener,
+    private val parser: BleParser = FitProM5(),
 ) {
 
     private var manager: BluetoothManager? = null
@@ -268,13 +271,9 @@ open class BleHelper constructor(
         }
     }
 
-    fun readHeartRate() {
-        val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x12, 0x01, 0x18, 0x00, 0x01, 0x01)
-        sendData(data)
-    }
+    fun readHeartRate() = sendData(parser.readHeartRate())
 
-    fun readSportsData() {
-        val data = byteArrayOfInts(0xCD, 0x00, 0x06, 0x15, 0x01, 0x0D, 0x00, 0x01, 0x01)
-        sendData(data)
-    }
+    fun readSportsData() = sendData(parser.readSportsData())
+
+    fun setDateTime(dt: Calendar) = sendData(parser.setDateTime(dt))
 }

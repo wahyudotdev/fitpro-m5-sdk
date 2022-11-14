@@ -276,4 +276,6 @@ open class BleHelper constructor(
     fun readSportsData() = sendData(parser.readSportsData())
 
     fun setDateTime(dt: Calendar) = sendData(parser.setDateTime(dt))
+
+    fun findDevice() = sendData(parser.findDevice())
 }

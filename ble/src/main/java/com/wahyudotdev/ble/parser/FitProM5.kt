@@ -22,7 +22,8 @@ class FitProM5 : BleParser {
             String.format("%6s", Integer.toBinaryString(dt.get(Calendar.YEAR).minus(2000)))
                 .replace(' ', '0')
         val month =
-            String.format("%4s", Integer.toBinaryString(dt.get(Calendar.MONTH).plus(1))).replace(' ', '0')
+            String.format("%4s", Integer.toBinaryString(dt.get(Calendar.MONTH).plus(1)))
+                .replace(' ', '0')
         val day =
             String.format("%5s", Integer.toBinaryString(dt.get(Calendar.DATE))).replace(' ', '0')
         val hour =
@@ -60,5 +61,9 @@ class FitProM5 : BleParser {
 
     override fun readSportsData(): ByteArray {
         return byteArrayOfInts(0xCD, 0x00, 0x06, 0x15, 0x01, 0x0D, 0x00, 0x01, 0x01)
+    }
+
+    override fun findDevice(): ByteArray {
+        return byteArrayOfInts(0xCD, 0x00, 0x06, 0x12, 0x01, 0x0B, 0x00, 0x01, 0x01)
     }
 }

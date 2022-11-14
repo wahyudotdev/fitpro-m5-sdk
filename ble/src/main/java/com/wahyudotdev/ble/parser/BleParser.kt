@@ -6,4 +6,5 @@ interface BleParser {
     fun setDateTime(dt: Calendar): ByteArray
     fun readHeartRate() : ByteArray
     fun readSportsData(): ByteArray
+    fun findDevice(): ByteArray
 }

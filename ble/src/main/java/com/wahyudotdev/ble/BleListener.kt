@@ -26,4 +26,6 @@ interface BleListener {
             BluetoothAdapter.STATE_ON -> Log.d("BLE", "onBluetoothStateChanged: Bluetooth ON")
         }
     }
+
+    fun onLocationStateChanged(state: (LocationState))
 }

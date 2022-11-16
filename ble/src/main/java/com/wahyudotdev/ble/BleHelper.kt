@@ -6,12 +6,14 @@ import android.bluetooth.*
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
+import android.os.Looper
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.*
+import com.google.android.gms.tasks.Task
 import com.wahyudotdev.ble.parser.BleParser
 import com.wahyudotdev.ble.parser.FitProM5
 import java.nio.ByteBuffer
@@ -35,12 +37,13 @@ open class BleHelper constructor(
     private var broadcastReceiver: BroadcastReceiver? = null
 
     private val _serviceUUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9d")
-    private val _notifyCharacteristicUUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9d")
+    private val _notifyCharacteristicUUID: UUID =
+        UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9d")
     private val _commandCharacteristicUUID: UUID =
         UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9d")
     private val _receiveHeartRate = 0x0E.toByte()
     private val _receiveSportsDayData = 0x0C.toByte()
-
+    private var isLocationEnabled = false
 
     open val service: UUID
         get() = _serviceUUID
@@ -77,10 +80,80 @@ open class BleHelper constructor(
         activity.registerReceiver(broadcastReceiver, filter)
     }
 
+    // Location
+    private var fusedLocationProviderClient: FusedLocationProviderClient? = null
+
+
+    private val locationCallback = object : LocationCallback() {
+        private var isLocationCallbackFired = false
+        private var onEnabled: (() -> Unit)? = null
+        private var onDisabled: (() -> Unit)? = null
+        fun setCallback(onEnabled: (() -> Unit)? = null, onDisabled: (() -> Unit)? = null) {
+            this.onEnabled = onEnabled
+            this.onDisabled = onDisabled
+        }
+
+        override fun onLocationResult(location: LocationResult) {
+            Log.d("TAG", "onLocationResult: ${location.lastLocation}")
+            if (!isLocationCallbackFired) {
+                isLocationCallbackFired = true
+                onEnabled?.invoke()
+                listener.onLocationStateChanged(LocationState.ENABLED)
+            }
+        }
+
+        override fun onLocationAvailability(service: LocationAvailability) {
+            if (service.isLocationAvailable) {
+                onEnabled?.invoke()
+                listener.onLocationStateChanged(LocationState.ENABLED)
+            } else {
+                isLocationCallbackFired = false
+                onDisabled?.invoke()
+                listener.onLocationStateChanged(LocationState.DISABLED)
+            }
+        }
+    }
+
+    private fun enableLocation(onEnabled: (() -> Unit)? = null, onDisabled: (() -> Unit)? = null) {
+        locationCallback.setCallback(onEnabled, onDisabled)
+        val locationRequest =
+            LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60000).build()
+        val builder = LocationSettingsRequest.Builder()
+            .addLocationRequest(locationRequest)
+        val client: SettingsClient = LocationServices.getSettingsClient(activity)
+        val task: Task<LocationSettingsResponse> = client.checkLocationSettings(builder.build())
+        task.addOnSuccessListener {
+            fusedLocationProviderClient =
+                LocationServices.getFusedLocationProviderClient(activity)
+            fusedLocationProviderClient?.removeLocationUpdates(locationCallback)
+            fusedLocationProviderClient?.requestLocationUpdates(
+                locationRequest, locationCallback,
+                Looper.getMainLooper()
+            )
+        }
+        task.addOnFailureListener { exception ->
+            if (exception is ResolvableApiException) {
+                try {
+                    exception.startResolutionForResult(activity, 100)
+                    fusedLocationProviderClient =
+                        LocationServices.getFusedLocationProviderClient(activity)
+                    fusedLocationProviderClient?.removeLocationUpdates(locationCallback)
+                    fusedLocationProviderClient?.requestLocationUpdates(
+                        locationRequest, locationCallback,
+                        Looper.getMainLooper()
+                    )
+                } catch (sendEx: IntentSender.SendIntentException) {
+                    onDisabled?.invoke()
+                }
+            }
+        }
+    }
+
     open fun destroy() {
         stopScan()
         disconnect()
         activity.unregisterReceiver(broadcastReceiver)
+        fusedLocationProviderClient?.removeLocationUpdates(locationCallback)
     }
 
     open fun stopScan() {
@@ -106,6 +179,7 @@ open class BleHelper constructor(
 
     fun startScan() {
         scanner = adapter?.bluetoothLeScanner
+        scanner?.stopScan(scanCallback)
         devices.clear()
         scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult?) {
@@ -117,12 +191,10 @@ open class BleHelper constructor(
                 listener.onDeviceDiscovered(devices)
             }
         }
-        if (!scanning) {
-            scanner?.startScan(scanCallback)
-            scanning = true
-        } else {
-            scanning = false
-            scanner?.stopScan(scanCallback)
+        if (!isLocationEnabled) {
+            enableLocation(onEnabled = {
+                scanner?.startScan(scanCallback)
+            })
         }
     }
 
@@ -181,9 +253,6 @@ open class BleHelper constructor(
             })
         }
     }
-
-    private fun byteArrayOfInts(vararg ints: Int) =
-        ByteArray(ints.size) { pos -> ints[pos].toByte() }
 
     private fun bytesToInt(bytes: ByteArray): Int =
         ByteBuffer.wrap(bytes).int

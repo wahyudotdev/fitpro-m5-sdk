@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.permissionx.guolindev.PermissionX
 import com.wahyudotdev.ble.BleHelper
 import com.wahyudotdev.ble.BleListener
+import com.wahyudotdev.ble.LocationState
 import com.wahyudotdev.ble.MonitoringData
 import com.wahyudotdev.fitprom5.databinding.ActivityMainBinding
 import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
@@ -94,9 +95,12 @@ class MainActivity : AppCompatActivity(), BleListener {
             BluetoothAdapter.STATE_OFF -> runOnUiThread { tos("Bluetooth OFF") }
             BluetoothAdapter.STATE_ON -> {
                 ble.startScan()
-                runOnUiThread { tos("Bluetooth ON, start scanning") }
             }
         }
+    }
+
+    override fun onLocationStateChanged(state: LocationState) {
+        runOnUiThread { tos(state.name) }
     }
 
     override fun onDeviceConnected(device: BluetoothDevice) {

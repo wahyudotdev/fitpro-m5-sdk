@@ -2,6 +2,7 @@ package com.wahyudotdev.fitprom5
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
@@ -42,18 +43,30 @@ class MainActivity : AppCompatActivity(), BleListener {
         // Perangkat BLE tidak akan bisa ditemukan jika GPS dalam keadaan OFF
         ble = BleHelper(this, this)
 
-        PermissionX.init(this).permissions(
-            android.Manifest.permission.ACCESS_COARSE_LOCATION,
-            android.Manifest.permission.ACCESS_FINE_LOCATION,
-            android.Manifest.permission.BLUETOOTH,
-            android.Manifest.permission.BLUETOOTH_ADMIN
-        ).request { allGranted, _, deniedList ->
-            if (allGranted) {
-                ble.setup {
-                    if (it?.isEnabled == true) {
-                        ble.startScan()
-                    } else {
-                        ble.enableBluetooth()
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.BLUETOOTH_SCAN,
+                android.Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            listOf(
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.BLUETOOTH,
+                android.Manifest.permission.BLUETOOTH_ADMIN
+            )
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PermissionX.init(this).permissions(permissions).request { allGranted, _, _ ->
+                if (allGranted) {
+                    ble.setup {
+                        if (it?.isEnabled == true) {
+                            ble.startScan()
+                        } else {
+                            ble.enableBluetooth()
+                        }
                     }
                 }
             }

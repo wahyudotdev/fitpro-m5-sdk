@@ -32,7 +32,16 @@ open class BleHelper constructor(
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
     private val devices = ArrayList<BluetoothDevice>()
-    private var scanCallback: ScanCallback? = null
+    private var scanCallback: ScanCallback? = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult?) {
+            super.onScanResult(callbackType, result)
+            val filter = devices.find { it.address == result?.device?.address }
+            if (filter == null && result?.device != null) {
+                devices.add(result.device)
+            }
+            listener.onDeviceDiscovered(devices)
+        }
+    }
     private var selectedGatt: BluetoothGatt? = null
     private var broadcastReceiver: BroadcastReceiver? = null
 
@@ -94,6 +103,7 @@ open class BleHelper constructor(
         }
 
         override fun onLocationResult(location: LocationResult) {
+            isLocationEnabled = true
             Log.d("TAG", "onLocationResult: ${location.lastLocation}")
             if (!isLocationCallbackFired) {
                 isLocationCallbackFired = true
@@ -104,9 +114,11 @@ open class BleHelper constructor(
 
         override fun onLocationAvailability(service: LocationAvailability) {
             if (service.isLocationAvailable) {
+                isLocationEnabled = true
                 onEnabled?.invoke()
                 listener.onLocationStateChanged(LocationState.ENABLED)
             } else {
+                isLocationEnabled = false
                 isLocationCallbackFired = false
                 onDisabled?.invoke()
                 listener.onLocationStateChanged(LocationState.DISABLED)
@@ -181,20 +193,12 @@ open class BleHelper constructor(
         scanner = adapter?.bluetoothLeScanner
         scanner?.stopScan(scanCallback)
         devices.clear()
-        scanCallback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult?) {
-                super.onScanResult(callbackType, result)
-                val filter = devices.find { it.address == result?.device?.address }
-                if (filter == null && result?.device != null) {
-                    devices.add(result.device)
-                }
-                listener.onDeviceDiscovered(devices)
-            }
-        }
         if (!isLocationEnabled) {
             enableLocation(onEnabled = {
                 scanner?.startScan(scanCallback)
             })
+        } else {
+            scanner?.startScan(scanCallback)
         }
     }
 

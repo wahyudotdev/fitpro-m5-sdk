@@ -20,10 +20,12 @@ interface BleListener {
 
     fun onDataReceived(data: MonitoringData)
 
-    fun onBluetoothStateChanged(state: Int) {
+    fun onBluetoothStateChanged(state: BluetoothState) {
         when (state) {
-            BluetoothAdapter.STATE_OFF -> Log.d("BLE", "onBluetoothStateChanged: Bluetooth OFF")
-            BluetoothAdapter.STATE_ON -> Log.d("BLE", "onBluetoothStateChanged: Bluetooth ON")
+            BluetoothState.OFF -> Log.d("BLE", "onBluetoothStateChanged: Bluetooth OFF")
+            BluetoothState.ON -> Log.d("BLE", "onBluetoothStateChanged: Bluetooth ON")
+            BluetoothState.TURNING_ON -> Log.d("BLE", "onBluetoothStateChanged: turning ON")
+            else -> Log.d("BLE", "onBluetoothStateChanged: request enable rejected ")
         }
     }
 

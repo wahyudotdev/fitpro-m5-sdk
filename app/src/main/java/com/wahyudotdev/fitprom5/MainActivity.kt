@@ -7,10 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import com.permissionx.guolindev.PermissionX
-import com.wahyudotdev.ble.BleHelper
-import com.wahyudotdev.ble.BleListener
-import com.wahyudotdev.ble.LocationState
-import com.wahyudotdev.ble.MonitoringData
+import com.wahyudotdev.ble.*
 import com.wahyudotdev.fitprom5.databinding.ActivityMainBinding
 import com.wahyudotdev.fitprom5.databinding.ItemDeviceBinding
 import java.util.*
@@ -62,11 +59,7 @@ class MainActivity : AppCompatActivity(), BleListener {
             PermissionX.init(this).permissions(permissions).request { allGranted, _, _ ->
                 if (allGranted) {
                     ble.setup {
-                        if (it?.isEnabled == true) {
-                            ble.startScan()
-                        } else {
-                            ble.enableBluetooth()
-                        }
+                        ble.startScan()
                     }
                 }
             }
@@ -103,17 +96,12 @@ class MainActivity : AppCompatActivity(), BleListener {
         }
     }
 
-    override fun onBluetoothStateChanged(state: Int) {
-        when (state) {
-            BluetoothAdapter.STATE_OFF -> runOnUiThread { tos("Bluetooth OFF") }
-            BluetoothAdapter.STATE_ON -> {
-                ble.startScan()
-            }
-        }
+    override fun onBluetoothStateChanged(state: BluetoothState) {
+        if (state == BluetoothState.ON) ble.startScan()
     }
 
     override fun onLocationStateChanged(state: LocationState) {
-        runOnUiThread { tos(state.name) }
+        if (state == LocationState.ENABLED) ble.startScan()
     }
 
     override fun onDeviceConnected(device: BluetoothDevice) {

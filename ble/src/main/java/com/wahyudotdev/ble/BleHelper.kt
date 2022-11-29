@@ -42,6 +42,14 @@ open class BleHelper constructor(
             listener.onDeviceDiscovered(devices)
         }
     }
+    private val register =
+        activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == Activity.RESULT_OK) {
+                listener.onBluetoothStateChanged(BluetoothState.TURNING_ON)
+            } else {
+                listener.onBluetoothStateChanged(BluetoothState.REJECTED)
+            }
+        }
     private var selectedGatt: BluetoothGatt? = null
     private var broadcastReceiver: BroadcastReceiver? = null
 
@@ -79,9 +87,15 @@ open class BleHelper constructor(
             override fun onReceive(context: Context?, intent: Intent?) {
                 val action = intent?.action
                 if (action?.equals(BluetoothAdapter.ACTION_STATE_CHANGED) == true) {
-                    val state =
-                        intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-                    listener.onBluetoothStateChanged(state)
+                    when (intent.getIntExtra(
+                        BluetoothAdapter.EXTRA_STATE,
+                        BluetoothAdapter.ERROR
+                    )) {
+                        BluetoothAdapter.STATE_OFF -> listener.onBluetoothStateChanged(
+                            BluetoothState.ON
+                        )
+                        BluetoothAdapter.STATE_ON -> listener.onBluetoothStateChanged(BluetoothState.ON)
+                    }
                 }
             }
         }
@@ -173,14 +187,6 @@ open class BleHelper constructor(
     }
 
     open fun enableBluetooth(onFail: (() -> Unit)? = null, onSuccess: (() -> Unit)? = null) {
-        val register =
-            activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                if (it.resultCode == Activity.RESULT_OK) {
-                    onSuccess?.invoke()
-                } else {
-                    onFail?.invoke()
-                }
-            }
         val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
         register.launch(intent)
     }
@@ -190,12 +196,20 @@ open class BleHelper constructor(
     }
 
     fun startScan() {
+        selectedGatt?.close()
         scanner = adapter?.bluetoothLeScanner
         scanner?.stopScan(scanCallback)
         devices.clear()
         if (!isLocationEnabled) {
             enableLocation(onEnabled = {
+                if (adapter?.isEnabled != true) {
+                    enableBluetooth()
+                }
                 scanner?.startScan(scanCallback)
+            })
+        } else if (adapter?.isEnabled == false) {
+            enableBluetooth(onSuccess = {
+                enableLocation()
             })
         } else {
             scanner?.startScan(scanCallback)

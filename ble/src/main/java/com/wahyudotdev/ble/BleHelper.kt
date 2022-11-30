@@ -306,14 +306,14 @@ open class BleHelper constructor(
          */
         if (characteristic.value?.get(5) == _receiveHeartRate) {
             val spo2 = characteristic.value?.get(16) ?: 0
-            val diastolic = characteristic.value?.get(17) ?: 0
-            val systolic = characteristic.value?.get(18) ?: 0
+            val systolic = characteristic.value?.get(17) ?: 0
+            val diastolic = characteristic.value?.get(18) ?: 0
             val bpm = characteristic.value?.get(19) ?: 0
             listener.onDataReceived(
                 MonitoringData.HeartRate(
                     spo2 = spo2.toInt(),
-                    diastolic = diastolic.toInt(),
                     systolic = systolic.toInt(),
+                    diastolic = diastolic.toInt(),
                     bpm = bpm.toInt()
                 )
             )

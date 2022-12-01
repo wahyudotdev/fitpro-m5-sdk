@@ -196,15 +196,12 @@ open class BleHelper constructor(
         register.launch(intent)
     }
 
-    fun disconnect() {
+    open fun disconnect() {
         selectedGatt?.close()
     }
 
     open fun scanFilter(): List<ScanFilter> {
-        return listOf(
-            ScanFilter.Builder()
-                .build()
-        )
+        return listOf(ScanFilter.Builder().build())
     }
 
     open fun scanSettings(): ScanSettings {

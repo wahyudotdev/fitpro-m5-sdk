@@ -202,13 +202,18 @@ open class BleHelper constructor(
         selectedGatt?.close()
     }
 
-    open fun scanFilter() : ScanFilter {
-        return ScanFilter.Builder()
-            .setDeviceName("M5")
-            .build()
+    open fun scanFilter(): List<ScanFilter> {
+        return listOf(
+            ScanFilter.Builder()
+                .setDeviceName("M5")
+                .build(),
+            ScanFilter.Builder()
+                .setDeviceName("LT716")
+                .build()
+        )
     }
 
-    open fun scanSettings() : ScanSettings {
+    open fun scanSettings(): ScanSettings {
         return ScanSettings.Builder()
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -225,14 +230,14 @@ open class BleHelper constructor(
                 if (adapter?.isEnabled != true) {
                     enableBluetooth()
                 }
-                scanner?.startScan(listOf(scanFilter()), scanSettings(), scanCallback)
+                scanner?.startScan(scanFilter(), scanSettings(), scanCallback)
             })
         } else if (adapter?.isEnabled == false) {
             enableBluetooth(onSuccess = {
                 enableLocation()
             })
         } else {
-            scanner?.startScan(listOf(scanFilter()), scanSettings(), scanCallback)
+            scanner?.startScan(scanFilter(), scanSettings(), scanCallback)
         }
     }
 

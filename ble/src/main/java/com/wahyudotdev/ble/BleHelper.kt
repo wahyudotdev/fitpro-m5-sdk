@@ -3,11 +3,7 @@ package com.wahyudotdev.ble
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.*
-import android.bluetooth.le.BluetoothLeScanner
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
+import android.bluetooth.le.*
 import android.content.*
 import android.os.Handler
 import android.os.Looper
@@ -207,10 +203,6 @@ open class BleHelper constructor(
     open fun scanFilter(): List<ScanFilter> {
         return listOf(
             ScanFilter.Builder()
-                .setDeviceName("M5")
-                .build(),
-            ScanFilter.Builder()
-                .setDeviceName("LT716")
                 .build()
         )
     }

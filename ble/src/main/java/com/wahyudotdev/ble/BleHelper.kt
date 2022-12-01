@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.*
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,7 @@ import com.wahyudotdev.ble.parser.BleParser
 import com.wahyudotdev.ble.parser.FitProM5
 import java.nio.ByteBuffer
 import java.util.*
+import kotlin.math.absoluteValue
 
 
 @SuppressLint("MissingPermission")
@@ -28,13 +30,13 @@ open class BleHelper constructor(
     private val listener: BleListener,
     private val parser: BleParser = FitProM5(),
 ) {
-
     private var manager: BluetoothManager? = null
     private var adapter: BluetoothAdapter? = null
     private var scanner: BluetoothLeScanner? = null
     private var scanning = false
     private val devices = ArrayList<BluetoothDevice>()
-    private var scanCallback: ScanCallback? = object : ScanCallback() {
+
+    private var scanCallback: ScanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             super.onScanResult(callbackType, result)
             val filter = devices.find { it.address == result?.device?.address }
@@ -241,10 +243,24 @@ open class BleHelper constructor(
         }
     }
 
-    fun connect(device: BluetoothDevice, onConnected: (() -> Unit)? = null) {
-        scanCallback?.let { it ->
-            scanner?.stopScan(it)
-            device.connectGatt(activity, true, object : BluetoothGattCallback() {
+    fun getDeviceFromAddress(address: String): BluetoothDevice {
+        return adapter?.getRemoteDevice(address) ?: throw Exception("not found")
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+    fun connect(
+        device: BluetoothDevice,
+        connectTimeout: Long = 20000,
+        onConnected: (() -> Unit)? = null,
+        onTimeOut: ((message: String?) -> Unit)? = null
+    ) {
+        handler.postDelayed({
+            onTimeOut?.invoke("timeout")
+        }, connectTimeout)
+
+        scanner?.stopScan(scanCallback)
+        try {
+            device.connectGatt(activity, false, object : BluetoothGattCallback() {
                 override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
                     super.onServicesDiscovered(gatt, status)
                     gatt?.getService(service)?.getCharacteristic(notifyCharacteristic)
@@ -271,6 +287,7 @@ open class BleHelper constructor(
                     gatt?.device?.let {
                         listener.onDeviceConnected(it)
                         onConnected?.invoke()
+                        handler.removeCallbacksAndMessages(null)
                     }
                 }
 
@@ -294,6 +311,8 @@ open class BleHelper constructor(
                     parseData(characteristic)
                 }
             })
+        }catch (e: Exception) {
+            onTimeOut?.invoke(e.stackTrace.toString())
         }
     }
 
@@ -336,10 +355,10 @@ open class BleHelper constructor(
             val bpm = characteristic.value?.get(19) ?: 0
             listener.onDataReceived(
                 MonitoringData.HeartRate(
-                    spo2 = spo2.toInt(),
-                    systolic = systolic.toInt(),
-                    diastolic = diastolic.toInt(),
-                    bpm = bpm.toInt()
+                    spo2 = spo2.toInt().absoluteValue,
+                    systolic = systolic.toInt().absoluteValue,
+                    diastolic = diastolic.toInt().absoluteValue,
+                    bpm = bpm.toInt().absoluteValue
                 )
             )
         }
@@ -375,9 +394,9 @@ open class BleHelper constructor(
             cal.addAll(0, listOf(0, 0))
             listener.onDataReceived(
                 MonitoringData.Sports(
-                    steps = bytesToInt(steps),
-                    meters = bytesToInt(meters),
-                    cal = bytesToInt(cal.toByteArray()),
+                    steps = bytesToInt(steps).absoluteValue,
+                    meters = bytesToInt(meters).absoluteValue,
+                    cal = bytesToInt(cal.toByteArray()).absoluteValue,
                 )
             )
         }

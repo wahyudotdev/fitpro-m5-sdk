@@ -1,6 +1,5 @@
 package com.wahyudotdev.fitprom5
 
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.os.Build
 import android.os.Bundle

@@ -5,7 +5,9 @@ import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.*
 import android.os.Looper
 import android.util.Log
@@ -40,6 +42,11 @@ open class BleHelper constructor(
                 devices.add(result.device)
             }
             listener.onDeviceDiscovered(devices)
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            super.onScanFailed(errorCode)
+            Log.d("TAG", "onScanFailed: $errorCode")
         }
     }
     private val register =
@@ -195,6 +202,19 @@ open class BleHelper constructor(
         selectedGatt?.close()
     }
 
+    open fun scanFilter() : ScanFilter {
+        return ScanFilter.Builder()
+            .setDeviceName("M5")
+            .build()
+    }
+
+    open fun scanSettings() : ScanSettings {
+        return ScanSettings.Builder()
+            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+    }
+
     fun startScan() {
         selectedGatt?.close()
         scanner = adapter?.bluetoothLeScanner
@@ -205,14 +225,14 @@ open class BleHelper constructor(
                 if (adapter?.isEnabled != true) {
                     enableBluetooth()
                 }
-                scanner?.startScan(scanCallback)
+                scanner?.startScan(listOf(scanFilter()), scanSettings(), scanCallback)
             })
         } else if (adapter?.isEnabled == false) {
             enableBluetooth(onSuccess = {
                 enableLocation()
             })
         } else {
-            scanner?.startScan(scanCallback)
+            scanner?.startScan(listOf(scanFilter()), scanSettings(), scanCallback)
         }
     }
 

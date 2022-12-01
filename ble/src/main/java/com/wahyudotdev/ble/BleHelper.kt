@@ -149,7 +149,7 @@ open class BleHelper constructor(
         }
     }
 
-    private fun enableLocation(onEnabled: (() -> Unit)? = null, onDisabled: (() -> Unit)? = null) {
+    open fun enableLocation(onEnabled: (() -> Unit)? = null, onDisabled: (() -> Unit)? = null) {
         locationCallback.setCallback(onEnabled, onDisabled)
         val locationRequest =
             LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60000).build()

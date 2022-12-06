@@ -4,5 +4,6 @@ enum class BluetoothState {
     ON,
     OFF,
     REJECTED,
-    TURNING_ON
+    TURNING_ON,
+    READY
 }

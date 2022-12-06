@@ -10,17 +10,22 @@ import android.os.Looper
 import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.google.android.gms.tasks.Task
 import com.wahyudotdev.ble.parser.BleParser
 import com.wahyudotdev.ble.parser.FitProM5
+import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.util.*
 import kotlin.math.absoluteValue
 
 
 @SuppressLint("MissingPermission")
+@Suppress("unused")
 open class BleHelper constructor(
     private val activity: FragmentActivity,
     private val listener: BleListener,
@@ -66,6 +71,7 @@ open class BleHelper constructor(
     private val _receiveHeartRate = 0x0E.toByte()
     private val _receiveSportsDayData = 0x0C.toByte()
     private var isLocationEnabled = false
+    private var isBluetoothEnabled = false
 
     open val service: UUID
         get() = _serviceUUID
@@ -96,10 +102,17 @@ open class BleHelper constructor(
                         BluetoothAdapter.EXTRA_STATE,
                         BluetoothAdapter.ERROR
                     )) {
-                        BluetoothAdapter.STATE_OFF -> listener.onBluetoothStateChanged(
-                            BluetoothState.ON
-                        )
-                        BluetoothAdapter.STATE_ON -> listener.onBluetoothStateChanged(BluetoothState.ON)
+                        BluetoothAdapter.STATE_OFF -> {
+                            listener.onBluetoothStateChanged(BluetoothState.OFF)
+                            isBluetoothEnabled = false
+                        }
+                        BluetoothAdapter.STATE_ON -> {
+                            listener.onBluetoothStateChanged(BluetoothState.ON)
+                            isBluetoothEnabled = true
+                            if (isLocationEnabled) {
+                                listener.onBluetoothStateChanged(BluetoothState.READY)
+                            }
+                        }
                     }
                 }
             }
@@ -123,7 +136,9 @@ open class BleHelper constructor(
 
         override fun onLocationResult(location: LocationResult) {
             isLocationEnabled = true
-            Log.d("TAG", "onLocationResult: ${location.lastLocation}")
+            if (isBluetoothEnabled) {
+                listener.onBluetoothStateChanged(BluetoothState.READY)
+            }
             if (!isLocationCallbackFired) {
                 isLocationCallbackFired = true
                 onEnabled?.invoke()
@@ -136,16 +151,29 @@ open class BleHelper constructor(
                 isLocationEnabled = true
                 onEnabled?.invoke()
                 listener.onLocationStateChanged(LocationState.ENABLED)
+                if (isBluetoothEnabled) {
+                    listener.onBluetoothStateChanged(BluetoothState.READY)
+                }
             } else {
                 isLocationEnabled = false
                 isLocationCallbackFired = false
                 onDisabled?.invoke()
                 listener.onLocationStateChanged(LocationState.DISABLED)
+                if (isBluetoothEnabled) {
+                    listener.onBluetoothStateChanged(BluetoothState.ON)
+                }
             }
         }
     }
 
     open fun enableLocation(onEnabled: (() -> Unit)? = null, onDisabled: (() -> Unit)? = null) {
+        if (isLocationEnabled) {
+            onEnabled?.invoke()
+            if (isBluetoothEnabled) {
+                listener.onBluetoothStateChanged(BluetoothState.READY)
+            }
+            return
+        }
         locationCallback.setCallback(onEnabled, onDisabled)
         val locationRequest =
             LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60000).build()
@@ -192,12 +220,21 @@ open class BleHelper constructor(
     }
 
     open fun enableBluetooth(onFail: (() -> Unit)? = null, onSuccess: (() -> Unit)? = null) {
+        if (adapter?.isEnabled == true) {
+            isBluetoothEnabled = true
+            onSuccess?.invoke()
+            if (isLocationEnabled) {
+                listener.onBluetoothStateChanged(BluetoothState.READY)
+            }
+            return
+        }
         val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
         register.launch(intent)
     }
 
     open fun disconnect() {
         selectedGatt?.close()
+        listener.onDeviceDisconnected()
     }
 
     open fun scanFilter(): List<ScanFilter> {
@@ -237,6 +274,22 @@ open class BleHelper constructor(
     }
 
     private val handler = Handler(Looper.getMainLooper())
+
+    fun connect(
+        device: BluetoothDevice, owner: LifecycleOwner, connectTimeout: Long = 20000,
+        onConnected: (() -> Unit)? = null,
+        onTimeOut: ((message: String?) -> Unit)? = null
+    ) {
+        connect(device, connectTimeout, onConnected) {
+            if (owner.lifecycle.currentState == Lifecycle.State.DESTROYED) {
+                return@connect
+            }
+            owner.lifecycleScope.launch {
+                onTimeOut?.invoke(it)
+            }
+        }
+    }
+
     fun connect(
         device: BluetoothDevice,
         connectTimeout: Long = 20000,
@@ -300,7 +353,7 @@ open class BleHelper constructor(
                     parseData(characteristic)
                 }
             })
-        }catch (e: Exception) {
+        } catch (e: Exception) {
             onTimeOut?.invoke(e.stackTrace.toString())
         }
     }

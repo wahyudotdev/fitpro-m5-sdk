@@ -234,6 +234,8 @@ open class BleHelper constructor(
 
     open fun disconnect() {
         selectedGatt?.close()
+        selectedGatt?.disconnect()
+        selectedGatt = null
         listener.onDeviceDisconnected()
     }
 
@@ -299,8 +301,12 @@ open class BleHelper constructor(
         handler.postDelayed({
             onTimeOut?.invoke("timeout")
         }, connectTimeout)
-
         scanner?.stopScan(scanCallback)
+        if (selectedGatt != null) {
+            handler.removeCallbacksAndMessages(null)
+            listener.onDeviceConnected(selectedGatt!!.device)
+            return
+        }
         try {
             device.connectGatt(activity, false, object : BluetoothGattCallback() {
                 override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {

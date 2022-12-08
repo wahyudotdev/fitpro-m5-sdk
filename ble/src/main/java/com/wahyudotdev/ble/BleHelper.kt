@@ -271,8 +271,12 @@ open class BleHelper constructor(
         }
     }
 
-    fun getDeviceFromAddress(address: String): BluetoothDevice {
-        return adapter?.getRemoteDevice(address) ?: throw Exception("not found")
+    fun getDeviceFromAddress(address: String): BluetoothDevice? {
+        return try {
+            adapter?.getRemoteDevice(address)
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
